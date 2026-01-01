@@ -8,7 +8,7 @@ RSS_URLS = [
     "https://www.nytimes.com/services/xml/rss/nyt/World.xml"
 ]
 
-ARCHIVE_PREFIX = "https://archive.is/o/EWuvH/"
+ARCHIVE_PREFIX = "https://archive.is/o/N6yE6/"
 OUTPUT_FILE = "combined.xml"
 
 def parse_entry_datetime(entry):

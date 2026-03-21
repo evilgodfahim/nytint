@@ -12,6 +12,7 @@ RSS_URLS = [
 ARCHIVE_PREFIX = "https://archive.is/o/N6yE6/"
 OUTPUT_FILE = "combined.xml"
 MAX_ITEMS = 500
+MEDIA_NS = "http://search.yahoo.com/mrss/"
 
 def parse_entry_datetime(entry):
     if hasattr(entry, "published_parsed") and entry.published_parsed:
@@ -23,6 +24,19 @@ def parse_entry_datetime(entry):
         ts = mktime(entry.updated_parsed)
         return datetime.fromtimestamp(ts, tz=timezone.utc)
     return datetime.now(tz=timezone.utc)
+
+def get_thumbnail(entry):
+    if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
+        return entry.media_thumbnail[0].get("url", "")
+    if hasattr(entry, "media_content") and entry.media_content:
+        for mc in entry.media_content:
+            if mc.get("medium") == "image" or mc.get("type", "").startswith("image/"):
+                return mc.get("url", "")
+    if hasattr(entry, "enclosures") and entry.enclosures:
+        for enc in entry.enclosures:
+            if enc.get("type", "").startswith("image/"):
+                return enc.get("href", "") or enc.get("url", "")
+    return ""
 
 # --- Load existing entries from file ---
 existing_entries = []
@@ -40,12 +54,17 @@ if os.path.exists(OUTPUT_FILE):
                 dt = datetime(*email.utils.parsedate(pub)[:6], tzinfo=timezone.utc)
             except Exception:
                 dt = datetime.now(tz=timezone.utc)
+            thumbnail = ""
+            thumb_nodes = item.getElementsByTagName("media:thumbnail")
+            if thumb_nodes:
+                thumbnail = thumb_nodes[0].getAttribute("url")
             existing_entries.append({
                 "title": get_text("title"),
                 "orig_link": guid,
                 "archive_link": get_text("link"),
                 "summary": get_text("description"),
-                "published_dt": dt
+                "published_dt": dt,
+                "thumbnail": thumbnail,
             })
     except Exception as e:
         print(f"⚠️  Could not parse existing file, starting fresh: {e}")
@@ -65,7 +84,8 @@ for feed_url in RSS_URLS:
             "orig_link": entry.link,
             "archive_link": ARCHIVE_PREFIX + entry.link,
             "summary": getattr(entry, "summary", "") or getattr(entry, "description", ""),
-            "published_dt": dt
+            "published_dt": dt,
+            "thumbnail": get_thumbnail(entry),
         })
 
 # --- Merge, sort, cap ---
@@ -77,6 +97,7 @@ all_entries = all_entries[:MAX_ITEMS]
 doc = Document()
 rss = doc.createElement("rss")
 rss.setAttribute("version", "2.0")
+rss.setAttribute("xmlns:media", MEDIA_NS)
 doc.appendChild(rss)
 
 channel = doc.createElement("channel")
@@ -94,6 +115,10 @@ for it in all_entries:
     item_el.appendChild(doc.createElement("description")).appendChild(doc.createTextNode(it["summary"]))
     pubdate = email.utils.format_datetime(it["published_dt"])
     item_el.appendChild(doc.createElement("pubDate")).appendChild(doc.createTextNode(pubdate))
+    if it.get("thumbnail"):
+        thumb_el = doc.createElementNS(MEDIA_NS, "media:thumbnail")
+        thumb_el.setAttribute("url", it["thumbnail"])
+        item_el.appendChild(thumb_el)
 
 with open(OUTPUT_FILE, "wb") as f:
     f.write(doc.toxml(encoding="utf-8"))
